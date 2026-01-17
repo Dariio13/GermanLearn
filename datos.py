@@ -1,6 +1,7 @@
 import sqlite3
 import pandas as pd
 import os
+import json  # <--- NUEVO: Necesario para guardar las historias de la IA
 
 DB_NAME = "vocabulario_aleman_niveles.db"
 CSV_FILE = "vocabulario_niveles.csv" 
@@ -13,7 +14,7 @@ def init_db():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
     
-    # 1. Crear tabla si no existe (Primera vez)
+    # --- 1. TABLA PALABRAS (VOCABULARIO) ---
     cursor.execute('''
         CREATE TABLE IF NOT EXISTS palabras (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -25,7 +26,20 @@ def init_db():
         )
     ''')
 
-    # 2. AUTO-REPARACIÓN: Chequear si falta la columna 'medicina' (Migración)
+    # --- 2. NUEVA TABLA: LECCIONES (IA) --- 
+    # Aquí se guardarán las historias generadas por OpenAI
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS lecciones (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            nivel TEXT,
+            tema TEXT,
+            contenido_json TEXT,
+            completada INTEGER DEFAULT 0
+        )
+    """)
+
+    # --- 3. AUTO-REPARACIÓN (HOSPITAL) ---
+    # Chequear si falta la columna 'medicina' en bases de datos viejas
     cursor.execute("PRAGMA table_info(palabras)")
     columnas = [info[1] for info in cursor.fetchall()]
     
@@ -38,7 +52,7 @@ def init_db():
         except Exception as e:
             print(f"❌ Error actualizando DB: {e}")
 
-    # 3. Cargar datos del CSV si la tabla está vacía
+    # --- 4. CARGA INICIAL DESDE CSV ---
     cursor.execute("SELECT COUNT(*) FROM palabras")
     if cursor.fetchone()[0] == 0:
         print("📥 Cargando datos desde CSV...")
@@ -67,12 +81,11 @@ def obtener_palabras_session(nivel, cantidad=10):
 def obtener_enfermas():
     conn = sqlite3.connect(DB_NAME)
     cursor = conn.cursor()
-    # Verifica que la columna exista antes de consultar (doble seguridad)
     try:
         cursor.execute("SELECT id, aleman, espanol, medicina FROM palabras WHERE medicina > 0 ORDER BY medicina DESC")
         data = cursor.fetchall()
     except sqlite3.OperationalError:
-        return [] # Retorna vacío si hay error de DB
+        return [] 
     conn.close()
     return data
 
@@ -87,7 +100,7 @@ def actualizar_progreso(id_palabra, resultado, modo="normal"):
         else:
             cursor.execute("UPDATE palabras SET aciertos = aciertos + 1 WHERE id = ?", (id_palabra,))
     else: 
-        # Fallo: Castigo + Reset
+        # Fallo: Castigo + Reset (La palabra se "enferma")
         cursor.execute("UPDATE palabras SET medicina = 3, aciertos = 0 WHERE id = ?", (id_palabra,))
         
     conn.commit()
@@ -121,7 +134,6 @@ def obtener_estadisticas():
             stats[nv] = 0
             stats[f"{nv}_txt"] = "0/0"
     
-    # Stats Hospital (Protegido contra errores)
     try:
         cursor.execute("SELECT COUNT(*) FROM palabras WHERE medicina > 0")
         enfermas = cursor.fetchone()[0]
@@ -132,4 +144,28 @@ def obtener_estadisticas():
     conn.close()
     return stats
 
+# --- NUEVAS FUNCIONES IA (Generador de Historias) ---
+
+def guardar_leccion(nivel, tema, datos_dict):
+    """Guarda el JSON generado por la IA en la base de datos"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    # Convertimos el diccionario de Python a texto JSON para guardarlo
+    json_str = json.dumps(datos_dict, ensure_ascii=False)
+    
+    cursor.execute("INSERT INTO lecciones (nivel, tema, contenido_json) VALUES (?, ?, ?)", 
+                   (nivel, tema, json_str))
+    conn.commit()
+    conn.close()
+
+def obtener_lecciones_por_nivel(nivel):
+    """Recupera todas las lecciones guardadas de un nivel"""
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute("SELECT id, tema, contenido_json, completada FROM lecciones WHERE nivel = ?", (nivel,))
+    resultados = cursor.fetchall()
+    conn.close()
+    return resultados
+
+# Inicializar DB al importar este archivo
 init_db()

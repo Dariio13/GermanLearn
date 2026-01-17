@@ -1,8 +1,11 @@
+# --- SEGURIDAD (MUY IMPORTANTE) ---
+.env
+
 # Archivos compilados de Python
 __pycache__/
 *.pyc
 
-# Carpetas de entorno virtual (si usas alguno)
+# Carpetas de entorno virtual
 venv/
 .venv/
 env/
@@ -11,3 +14,5 @@ env/
 .DS_Store
 flet_app/
 build/
+dist/
+assets/

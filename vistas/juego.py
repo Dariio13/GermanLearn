@@ -9,7 +9,7 @@ class VistaJuego(ft.UserControl):
         self.page = page
         self.modo = modo
         self.nivel = nivel
-        self.fn_volver = fn_volver # Función para regresar al menú
+        self.fn_volver = fn_volver 
         
         # Estado del juego
         self.sesion = []
@@ -36,7 +36,7 @@ class VistaJuego(ft.UserControl):
         return ft.Column([
             ft.Container(height=30),
             ft.Row([
-                ft.IconButton(ft.icons.CLOSE, on_click=lambda _: self.fn_volver()), 
+                ft.IconButton(ft.icons.CLOSE, on_click=lambda _: self.volver_seguro()), 
                 self.txt_contador
             ], alignment="spaceBetween"),
             ft.Divider(),
@@ -52,11 +52,14 @@ class VistaJuego(ft.UserControl):
         ], horizontal_alignment="center")
 
     def did_mount(self):
-        """Se ejecuta cuando el control se agrega a la pantalla"""
         self.iniciar_logica()
 
+    # --- NUEVO: FUNCIÓN PARA SALIR DE FORMA SEGURA ---
+    def volver_seguro(self):
+        self.timer_activo = False # Matamos el timer antes de salir
+        self.fn_volver()
+
     def iniciar_logica(self):
-        # Cargar datos según modo
         if self.modo == "normal":
             self.sesion = datos.obtener_palabras_session(self.nivel, 10)
             self.txt_contador.value = f"Nivel {self.nivel}"
@@ -89,13 +92,13 @@ class VistaJuego(ft.UserControl):
             btn.style = ft.ButtonStyle(bgcolor=ft.colors.GREY_100, color="black")
 
         if self.indice < len(self.sesion):
-            self.txt_palabra.value = self.sesion[self.indice][2] # Español
+            self.txt_palabra.value = self.sesion[self.indice][2] 
         else:
             self.terminar_sesion()
         self.update()
 
     def mostrar_opciones(self, e):
-        palabra = self.sesion[self.indice][1] # Aleman completo "Der Hund"
+        palabra = self.sesion[self.indice][1] 
         partes = palabra.split(" ", 1)
         sustantivo = partes[1] if len(partes) > 1 else palabra
         
@@ -109,6 +112,10 @@ class VistaJuego(ft.UserControl):
         self.update()
 
     def verificar(self, e):
+        # --- CORRECCIÓN 1: SI EL JUEGO TERMINÓ, IGNORAR CLICS ---
+        if self.modo == "blitz" and (not self.timer_activo or self.tiempo <= 0):
+            return
+
         btn = e.control
         es_correcto = (btn.data == self.respuesta_correcta)
         id_palabra = self.sesion[self.indice][0]
@@ -128,9 +135,16 @@ class VistaJuego(ft.UserControl):
             self.txt_resultado.value = f"Era: {self.respuesta_correcta}"
             self.txt_resultado.color = "red"
             datos.actualizar_progreso(id_palabra, "mal", self.modo)
-            if self.modo == "blitz": self.tiempo -= 5
+            
+            if self.modo == "blitz": 
+                self.tiempo -= 5
+                # --- CORRECCIÓN 2: VERIFICAR SI LA RESTA MATÓ EL JUEGO ---
+                if self.tiempo <= 0:
+                    self.tiempo = 0
+                    self.terminar_sesion()
+                    return
 
-        # Bloquear
+        # Bloquear botones
         self.btn_der.disabled = True; self.btn_die.disabled = True; self.btn_das.disabled = True
         self.btn_siguiente.visible = True
         self.update()
@@ -142,17 +156,47 @@ class VistaJuego(ft.UserControl):
     def correr_timer(self):
         while self.tiempo > 0 and self.timer_activo:
             time.sleep(1)
+            # --- CORRECCIÓN 3: VERIFICAR DE NUEVO ANTES DE RESTAR ---
+            if not self.timer_activo: break
+            
             self.tiempo -= 1
+            if self.tiempo < 0: self.tiempo = 0 # Evitar negativos visuales
+            
             self.txt_contador.value = f"🔥 {self.tiempo}s | Puntos: {self.puntos}"
             try: self.update()
             except: pass
-        if self.timer_activo: self.terminar_sesion()
+            
+        # Si salimos del bucle porque se acabó el tiempo (y no porque el usuario salió)
+        if self.tiempo <= 0 and self.timer_activo:
+            self.terminar_sesion()
 
     def terminar_sesion(self):
-        self.timer_activo = False
-        mensaje = f"Acertaste {self.puntos} palabras."
-        dlg = ft.AlertDialog(title=ft.Text("Fin"), content=ft.Text(mensaje),
-            actions=[ft.TextButton("Menú", on_click=lambda _: self.fn_volver())])
+        self.timer_activo = False # Apagar bandera global
+        
+        # Bloquear todo visualmente
+        self.btn_der.disabled = True
+        self.btn_die.disabled = True
+        self.btn_das.disabled = True
+        self.btn_elegir.disabled = True
+        try: self.update()
+        except: pass
+
+        mensaje = f"¡Tiempo fuera! Acertaste {self.puntos} palabras."
+
+        # --- CORRECCIÓN AQUÍ: Función para cerrar antes de salir ---
+        def cerrar_y_salir(e):
+            dlg.open = False       # 1. Apagar el diálogo
+            self.page.update()     # 2. Refrescar la pantalla (importante para que desaparezca)
+            self.fn_volver()       # 3. Ahora sí, volver al menú
+
+        dlg = ft.AlertDialog(
+            title=ft.Text("Fin del Juego"), 
+            content=ft.Text(mensaje),
+            modal=True, 
+            # Usamos nuestra nueva función en el botón
+            actions=[ft.TextButton("Volver al Menú", on_click=cerrar_y_salir)]
+        )
+        
         self.page.dialog = dlg
         dlg.open = True
         self.page.update()
