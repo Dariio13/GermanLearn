@@ -1,6 +1,13 @@
+# Archivos compilados de Python
 __pycache__/
 *.pyc
-*.db
+
+# Carpetas de entorno virtual (si usas alguno)
 venv/
-.env
-.vscode/
+.venv/
+env/
+
+# Archivos de sistema y Flet
+.DS_Store
+flet_app/
+build/
